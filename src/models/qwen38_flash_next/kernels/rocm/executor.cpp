@@ -1867,6 +1867,9 @@ bool Executor::Experts(const DeviceTensor& w, const float* x,
       case GgmlType::kQ5_K:
         rc = qfn_mmq_q5_K_moe_raw(w.data, x, ids, out, M, K, T, E, U, stream_);
         break;
+      case GgmlType::kQ4_1:
+        rc = qfn_mmq_q4_1_moe_raw(w.data, x, ids, out, M, K, T, E, U, stream_);
+        break;
       case GgmlType::kQ5_1:
         rc = qfn_mmq_q5_1_moe_raw(w.data, x, ids, out, M, K, T, E, U, stream_);
         break;
@@ -2865,7 +2868,8 @@ bool Executor::WmmaExperts(const DeviceLayer& l, std::uint32_t n_tokens) const {
          (l.ffn_gate_exps.type == GgmlType::kQ4_K ||
           l.ffn_gate_exps.type == GgmlType::kQ5_K) &&
          l.ffn_up_exps.type == l.ffn_gate_exps.type &&
-         (l.ffn_down_exps.type == GgmlType::kQ5_1 ||
+         (l.ffn_down_exps.type == GgmlType::kQ4_1 ||
+          l.ffn_down_exps.type == GgmlType::kQ5_1 ||
           l.ffn_down_exps.type == GgmlType::kQ8_0) &&
          c.hidden_size % 256 == 0 && c.expert_ff % 64 == 0;
 }
@@ -2927,9 +2931,10 @@ bool Executor::MoeExperts(const DeviceLayer& l, const float* x, float* out,
       AssignError(error_msg, "routed F16 gate/up GEMM failed");
       return false;
     }
-    const WeightType down_type = l.ffn_down_exps.type == GgmlType::kQ8_0
-                                     ? WeightType::kQ8_0
-                                     : WeightType::kQ5_1;
+    const WeightType down_type =
+        l.ffn_down_exps.type == GgmlType::kQ8_0   ? WeightType::kQ8_0
+        : l.ffn_down_exps.type == GgmlType::kQ4_1 ? WeightType::kQ4_1
+                                                  : WeightType::kQ5_1;
     // Prefill takes the gate/up map's 128-token tiles: each wave decodes its
     // rows' weights once for up to 128 tokens.
     const bool wide_down = routed_wide_tiles_ != 0;

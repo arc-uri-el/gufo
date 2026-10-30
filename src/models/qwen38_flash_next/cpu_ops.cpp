@@ -34,6 +34,23 @@ void DequantizeQ5_1(const std::uint8_t* src, float* dst, std::size_t k) {
   }
 }
 
+void DequantizeQ4_1(const std::uint8_t* src, float* dst, std::size_t k) {
+  for (std::size_t b = 0; b < k / 32; ++b) {
+    const std::uint8_t* blk = src + b * 20;
+    std::uint16_t d16 = 0;
+    std::uint16_t m16 = 0;
+    std::memcpy(&d16, blk, 2);
+    std::memcpy(&m16, blk + 2, 2);
+    const float d = gufo::quant::Fp16ToFloat(d16);
+    const float m = gufo::quant::Fp16ToFloat(m16);
+    float* y = dst + b * 32;
+    for (int j = 0; j < 16; ++j) {
+      y[j] = static_cast<float>(blk[4 + j] & 0x0F) * d + m;
+      y[j + 16] = static_cast<float>(blk[4 + j] >> 4) * d + m;
+    }
+  }
+}
+
 }  // namespace
 
 void DequantizeRow(const TensorRef& t, std::uint64_t e, std::uint64_t row,
@@ -61,6 +78,9 @@ void DequantizeRow(const TensorRef& t, std::uint64_t e, std::uint64_t row,
       break;
     case GgmlType::kQ8_0:
       gufo::quant::DequantizeQ8_0(src, out, k);
+      break;
+    case GgmlType::kQ4_1:
+      DequantizeQ4_1(src, out, k);
       break;
     case GgmlType::kQ5_1:
       DequantizeQ5_1(src, out, k);

@@ -228,6 +228,7 @@ typedef float (*vec_dot_q_hip_t)(const void * __restrict__ vbq, const block_q8_1
 
 static constexpr __device__ vec_dot_q_hip_t get_vec_dot_q_hip(ggml_type type) {
     switch (type) {
+        case GGML_TYPE_Q4_1:    return vec_dot_q4_1_q8_1;
         case GGML_TYPE_Q5_1:    return vec_dot_q5_1_q8_1;
         case GGML_TYPE_Q8_0:    return vec_dot_q8_0_q8_1;
         case GGML_TYPE_Q4_K:    return vec_dot_q4_K_q8_1;
@@ -238,6 +239,7 @@ static constexpr __device__ vec_dot_q_hip_t get_vec_dot_q_hip(ggml_type type) {
 
 static constexpr __host__ __device__ int get_vdr_mmvq(ggml_type type) {
     switch (type) {
+        case GGML_TYPE_Q4_1:    return VDR_Q4_1_Q8_1_MMVQ;
         case GGML_TYPE_Q5_1:    return VDR_Q5_1_Q8_1_MMVQ;
         case GGML_TYPE_Q8_0:    return VDR_Q8_0_Q8_1_MMVQ;
         case GGML_TYPE_Q4_K:    return VDR_Q4_K_Q8_1_MMVQ;
@@ -792,9 +794,27 @@ void mul_mat_vec_moe_dispatch(const void* weights, ggml_type type,
                              const int32_t* dst_slots) {
     // dst_slots (expert-ordered slot rows) is only used by the down view.
     GGML_ASSERT(!dst_slots || (k == 640 && experts_used == 1 && tokens > 1 &&
-                               (type == GGML_TYPE_Q5_1 ||
+                               (type == GGML_TYPE_Q4_1 ||
+                                type == GGML_TYPE_Q5_1 ||
                                 type == GGML_TYPE_Q8_0)));
     switch (type) {
+        case GGML_TYPE_Q4_1:
+          // The Q5_1 down projection's row tiles, for Q4_1 down weights.
+          if (k == 640 && experts_used == 1 && tokens > 1) {
+            if (tokens > 20) {
+              launch_moe<GGML_TYPE_Q4_1, 8>(
+                  weights, input, ids, output, k, rows, tokens, experts_used,
+                  input_stride, stream, dst_slots);
+            } else {
+              launch_moe<GGML_TYPE_Q4_1, 4>(
+                  weights, input, ids, output, k, rows, tokens, experts_used,
+                  input_stride, stream, dst_slots);
+            }
+            break;
+          }
+          launch_moe<GGML_TYPE_Q4_1>(weights, input, ids, output, k, rows,
+                                     tokens, experts_used, input_stride, stream);
+          break;
         case GGML_TYPE_Q5_1:
           // Down projection slots have independent inputs. Wider row tiles
           // reuse each short input without changing its dot-product sum.

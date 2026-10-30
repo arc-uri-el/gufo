@@ -274,6 +274,7 @@ const char* TypeName(q::WeightType type) {
   return type == q::WeightType::kQ4_K   ? "Q4_K"
          : type == q::WeightType::kQ5_K ? "Q5_K"
          : type == q::WeightType::kQ5_1 ? "Q5_1"
+         : type == q::WeightType::kQ4_1 ? "Q4_1"
                                         : "Q8_0";
 }
 
@@ -1082,8 +1083,8 @@ std::size_t CountDiffs(const std::vector<__half>& a, std::size_t a_offset,
 }
 
 /// Packed random blocks without the dequantized copy (model-sized shapes):
-/// every byte random, then sane F16 scales (Q4_K/Q5_K d and dmin; Q5_1 d and
-/// m; Q8_0 d).
+/// every byte random, then sane F16 scales (Q4_K/Q5_K d and dmin; Q5_1/Q4_1/
+/// Q8_0 d, Q5_1/Q4_1 m).
 std::vector<std::uint8_t> MakePacked(q::WeightType type, std::size_t e,
                                      std::size_t m, std::size_t k,
                                      std::uint32_t seed) {
@@ -1093,6 +1094,7 @@ std::vector<std::uint8_t> MakePacked(q::WeightType type, std::size_t e,
   const std::size_t bytes = type == q::WeightType::kQ4_K   ? 144
                             : type == q::WeightType::kQ5_K ? 176
                             : type == q::WeightType::kQ5_1 ? 24
+                            : type == q::WeightType::kQ4_1 ? 20
                                                            : 34;
   std::vector<std::uint8_t> packed(e * m * (k / block) * bytes);
   for (auto& b : packed)
@@ -1104,8 +1106,9 @@ std::vector<std::uint8_t> MakePacked(q::WeightType type, std::size_t e,
     const __half dh = __float2half(d);
     std::memcpy(packed.data() + b, &dh, 2);
     if (type != q::WeightType::kQ8_0) {
-      const __half mh =
-          __float2half(type == q::WeightType::kQ5_1 ? -16.0F * d : 0.5F * d);
+      const __half mh = __float2half(type == q::WeightType::kQ5_1   ? -16.0F * d
+                                     : type == q::WeightType::kQ4_1 ? -8.0F * d
+                                                                    : 0.5F * d);
       std::memcpy(packed.data() + b + 2, &mh, 2);
     }
   }
@@ -1237,7 +1240,8 @@ int main() {
     CheckGatedDecodeShape();
     bool routes = true;
     for (const auto gate : {q::WeightType::kQ4_K, q::WeightType::kQ5_K})
-      for (const auto down : {q::WeightType::kQ5_1, q::WeightType::kQ8_0})
+      for (const auto down :
+           {q::WeightType::kQ5_1, q::WeightType::kQ4_1, q::WeightType::kQ8_0})
         routes = CheckPassRoutes(gate, down) && routes;
     if (!routes)
       throw std::runtime_error("routed expert rows depend on the pass route");
